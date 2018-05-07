@@ -29,7 +29,9 @@ def send(env, bucket, key, status):
             "object:%s" % key
         ]
 
-        if status == AV_STATUS_CLEAN:
+        if status == AV_STATUS_SKIPPED:
+            result_metric_name = "skipped"
+        elif status == AV_STATUS_CLEAN:
             result_metric_name = "clean"
         elif status == AV_STATUS_INFECTED:
             result_metric_name = "infected"

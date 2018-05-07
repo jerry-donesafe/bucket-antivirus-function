@@ -193,7 +193,9 @@ the table below for reference.
 | AV_SCAN_START_SNS_ARN | SNS topic ARN to publish notification about start of scan | | No |
 | AV_SCAN_START_METADATA | The tag/metada indicating the start of the scan | av-scan-start | No |
 | AV_STATUS_CLEAN | The value assigned to clean items inside of tags/metadata | CLEAN | No |
-| AV_STATUS_INFECTED | The value assigned to clean items inside of tags/metadata | INFECTED | No |
+| AV_STATUS_INFECTED | The value assigned to infected items inside of tags/metadata | INFECTED | No |
+| AV_STATUS_SKIPPED | The value assigned to skipped items due to large file size inside of tags/metadata | SKIPPED | No |
+| AV_SCAN_SKIP_SIZE_IN_MB | File size to skip in megabytes | 300 | No |
 | AV_STATUS_METADATA | The tag/metadata name representing file's AV status | av-status | No |
 | AV_STATUS_SNS_ARN | SNS topic ARN to publish scan results (optional) | | No |
 | AV_TIMESTAMP_METADATA | The tag/metadata name representing file's scan time | av-timestamp | No |

@@ -25,13 +25,17 @@ from distutils.util import strtobool
 ENV = os.getenv("ENV", "")
 
 
-def event_object(event):
+def event_object(event, summary):
     bucket = event['Records'][0]['s3']['bucket']['name']
     key = urllib.unquote_plus(event['Records'][0]['s3']['object']['key'].encode('utf8'))
     if (not bucket) or (not key):
         print("Unable to retrieve object from event.\n%s" % event)
         raise Exception("Unable to retrieve object from event.")
-    return s3.Object(bucket, key)
+
+    if summary is True:
+        return s3.ObjectSummary(bucket, key)
+    else:
+        return s3.Object(bucket, key)
 
 def verify_s3_object_version(s3_object):
     # validate that we only process the original version of a file, if asked to do so
@@ -92,6 +96,7 @@ def set_av_tags(s3_object, result):
         Tagging={"TagSet": new_tags}
     )
 
+
 def sns_start_scan(s3_object):
     if AV_SCAN_START_SNS_ARN is None:
         return
@@ -108,6 +113,7 @@ def sns_start_scan(s3_object):
         Message=json.dumps({'default': json.dumps(message)}),
         MessageStructure="json"
     )
+
 
 def sns_scan_results(s3_object, result):
     if AV_STATUS_SNS_ARN is None:
@@ -131,25 +137,39 @@ def lambda_handler(event, context):
     start_time = datetime.utcnow()
     print("Script starting at %s\n" %
           (start_time.strftime("%Y/%m/%d %H:%M:%S UTC")))
-    s3_object = event_object(event)
-    verify_s3_object_version(s3_object)
-    sns_start_scan(s3_object)
-    file_path = download_s3_object(s3_object, "/tmp")
-    clamav.update_defs_from_s3(AV_DEFINITION_S3_BUCKET, AV_DEFINITION_S3_PREFIX)
-    scan_result = clamav.scan_file(file_path)
-    print("Scan of s3://%s resulted in %s\n" % (os.path.join(s3_object.bucket_name, s3_object.key), scan_result))
-    if "AV_UPDATE_METADATA" in os.environ:
-        set_av_metadata(s3_object, scan_result)
-    set_av_tags(s3_object, scan_result)
-    sns_scan_results(s3_object, scan_result)
-    metrics.send(env=ENV, bucket=s3_object.bucket_name, key=s3_object.key, status=scan_result)
-    # Delete downloaded file to free up room on re-usable lambda function container
-    try:
-        os.remove(file_path)
-    except OSError:
-        pass
+    
+    s3_object_summary = event_object(event, True)
+    s3_object = event_object(event, False)
+    file_to_scan = os.path.join(s3_object.bucket_name, s3_object.key)
+    file_size_in_mb = s3_object_summary.size / 1024 / 1024
+    will_skip = float(file_size_in_mb) >= float(AV_SCAN_SKIP_SIZE_IN_MB)
+
+    print("s3://%s\n" % (file_to_scan))
+    print("File size: %s bytes (%sMB), AV_SCAN_SKIP_SIZE_IN_MB: %s, will skip: %s\n" %
+          (s3_object_summary.size, file_size_in_mb, AV_SCAN_SKIP_SIZE_IN_MB, will_skip))
+
+    if will_skip is True:
+        set_av_tags(s3_object, AV_STATUS_SKIPPED)
+    else:
+        verify_s3_object_version(s3_object)
+        sns_start_scan(s3_object)
+        file_path = download_s3_object(s3_object, "/tmp")
+        clamav.update_defs_from_s3(AV_DEFINITION_S3_BUCKET, AV_DEFINITION_S3_PREFIX)
+        scan_result = clamav.scan_file(file_path)
+        print("Scan of s3://%s resulted in %s\n" % (file_to_scan, scan_result))
+        if "AV_UPDATE_METADATA" in os.environ:
+            set_av_metadata(s3_object, scan_result)
+        set_av_tags(s3_object, scan_result)
+        sns_scan_results(s3_object, scan_result)
+        metrics.send(env=ENV, bucket=s3_object.bucket_name, key=s3_object.key, status=scan_result)
+        # Delete downloaded file to free up room on re-usable lambda function container
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
     print("Script finished at %s\n" %
           datetime.utcnow().strftime("%Y/%m/%d %H:%M:%S UTC"))
+
 
 def str_to_bool(s):
     return bool(strtobool(str(s)))
